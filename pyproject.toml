@@ -1,0 +1,15 @@
+[project]
+name = "dnsrecords"
+version = "0.1.0"
+description = "Parse, validate, and format common DNS record types"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "mary-doyle49" }]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
