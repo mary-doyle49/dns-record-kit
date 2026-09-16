@@ -11,6 +11,8 @@ from .records import (
     MXRecord,
     NSRecord,
     Record,
+    SOARecord,
+    SRVRecord,
     TXTRecord,
 )
 
@@ -23,6 +25,20 @@ _BUILDERS = {
     "NS": lambda name, ttl, fields: NSRecord(name, ttl, fields[0]),
     "MX": lambda name, ttl, fields: MXRecord(name, ttl, int(fields[0]), fields[1]),
     "TXT": lambda name, ttl, fields: TXTRecord(name, ttl, " ".join(fields).strip('"')),
+    "SOA": lambda name, ttl, fields: SOARecord(
+        name,
+        ttl,
+        fields[0],
+        fields[1],
+        int(fields[2]),
+        int(fields[3]),
+        int(fields[4]),
+        int(fields[5]),
+        int(fields[6]),
+    ),
+    "SRV": lambda name, ttl, fields: SRVRecord(
+        name, ttl, int(fields[0]), int(fields[1]), int(fields[2]), fields[3]
+    ),
 }
 
 

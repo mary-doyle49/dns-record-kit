@@ -57,8 +57,8 @@ print(format_zone(records))
 
 ## Supported record types
 
-`A`, `AAAA`, `CNAME`, `MX`, `NS`, `TXT`. More types (SOA, SRV, CAA) are
-planned; see the code for the current field set on each.
+`A`, `AAAA`, `CNAME`, `MX`, `NS`, `SOA`, `SRV`, `TXT`. `CAA` is planned;
+see the code for the current field set on each.
 
 ## Status
 

@@ -6,6 +6,8 @@ from .records import (
     MXRecord,
     NSRecord,
     Record,
+    SOARecord,
+    SRVRecord,
     TXTRecord,
     is_valid_hostname,
 )
@@ -17,6 +19,8 @@ __all__ = [
     "CNAMERecord",
     "MXRecord",
     "NSRecord",
+    "SOARecord",
+    "SRVRecord",
     "TXTRecord",
     "is_valid_hostname",
     "parse_line",

@@ -13,8 +13,12 @@ from dataclasses import dataclass
 
 # RFC 1035 label rules: 1-63 chars, alphanumeric plus hyphen, no
 # leading/trailing hyphen per label. Trailing dot (FQDN form) is optional.
+# Underscore is technically outside the RFC but is allowed here anyway:
+# it's required for the owner names of real-world SRV records (e.g.
+# "_sip._tcp.example.com.") and is also common for TXT-based
+# verification records, and every major resolver accepts it in practice.
 _HOSTNAME_RE = re.compile(
-    r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
+    r"^(?!-)[A-Za-z0-9_-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9_-]{1,63}(?<!-))*\.?$"
 )
 
 
@@ -136,6 +140,72 @@ class MXRecord(Record):
 
     def rdata(self) -> str:
         return f"{self.priority} {self.exchange}"
+
+
+@dataclass(frozen=True)
+class SOARecord(Record):
+    mname: str
+    rname: str
+    serial: int
+    refresh: int
+    retry: int
+    expire: int
+    minimum: int
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not is_valid_hostname(self.mname):
+            raise ValueError(f"invalid primary nameserver: {self.mname!r}")
+        if not is_valid_hostname(self.rname):
+            raise ValueError(f"invalid responsible-party mailbox: {self.rname!r}")
+        for field_name, value in (
+            ("serial", self.serial),
+            ("refresh", self.refresh),
+            ("retry", self.retry),
+            ("expire", self.expire),
+            ("minimum", self.minimum),
+        ):
+            # All five are 32-bit unsigned in the wire format.
+            if not 0 <= value <= 4294967295:
+                raise ValueError(f"{field_name} out of range: {value}")
+
+    @property
+    def rtype(self) -> str:
+        return "SOA"
+
+    def rdata(self) -> str:
+        return (
+            f"{self.mname} {self.rname} {self.serial} "
+            f"{self.refresh} {self.retry} {self.expire} {self.minimum}"
+        )
+
+
+@dataclass(frozen=True)
+class SRVRecord(Record):
+    priority: int
+    weight: int
+    port: int
+    target: str
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not 0 <= self.priority <= 65535:
+            raise ValueError(f"priority out of range: {self.priority}")
+        if not 0 <= self.weight <= 65535:
+            raise ValueError(f"weight out of range: {self.weight}")
+        if not 0 <= self.port <= 65535:
+            raise ValueError(f"port out of range: {self.port}")
+        # "." is the documented way to say "service explicitly not
+        # available at this name" and isn't a valid hostname on its own.
+        if self.target != "." and not is_valid_hostname(self.target):
+            raise ValueError(f"invalid SRV target: {self.target!r}")
+
+    @property
+    def rtype(self) -> str:
+        return "SRV"
+
+    def rdata(self) -> str:
+        return f"{self.priority} {self.weight} {self.port} {self.target}"
 
 
 @dataclass(frozen=True)
