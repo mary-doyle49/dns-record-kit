@@ -36,6 +36,21 @@ for record in records:
     print(record.name, record.rtype, record.rdata())
 ```
 
+`$ORIGIN` and `$TTL` directives are tracked as `parse_zone` walks the
+file, so `@` and TTL-less lines resolve the way BIND resolves them:
+
+```python
+zone_text = """
+$ORIGIN example.com.
+$TTL 7200
+@       IN A     192.0.2.10
+mail    IN A     192.0.2.20
+"""
+
+records = parse_zone(zone_text)
+# records[0].name == "example.com.", records[0].ttl == 7200
+```
+
 Building and validating records directly:
 
 ```python
@@ -63,5 +78,7 @@ see the code for the current field set on each.
 ## Status
 
 Early skeleton. The parser handles the common single-line record
-syntax; it does not yet handle `$ORIGIN`/`$TTL` directives, multi-line
-records in parentheses, or relative (non-FQDN) name expansion.
+syntax, and `parse_zone` tracks `$ORIGIN`/`$TTL` directives (so `@`
+resolves and TTL-less lines pick up the right default). It does not
+yet handle multi-line records in parentheses, or expanding relative
+(non-FQDN, non-`@`) names against `$ORIGIN`.

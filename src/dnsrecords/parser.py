@@ -14,6 +14,7 @@ from .records import (
     SOARecord,
     SRVRecord,
     TXTRecord,
+    is_valid_hostname,
 )
 
 DEFAULT_TTL = 3600
@@ -42,11 +43,22 @@ _BUILDERS = {
 }
 
 
-def parse_line(line: str) -> Optional[Record]:
+def parse_line(
+    line: str,
+    *,
+    origin: Optional[str] = None,
+    default_ttl: int = DEFAULT_TTL,
+) -> Optional[Record]:
     """Parse one line of zone-file syntax into a Record.
 
     Returns None for blank lines and comments so callers can filter a
     whole file without special-casing those lines themselves.
+
+    `origin` and `default_ttl` carry the state that `$ORIGIN`/`$TTL`
+    directives set elsewhere in the file: pass the current origin so a
+    bare `@` owner name resolves, and the current default TTL so lines
+    that omit one pick up the right value. Directive lines themselves
+    are not records; `parse_zone` handles those before calling here.
     """
     stripped = line.split(";", 1)[0].strip()
     if not stripped:
@@ -54,7 +66,16 @@ def parse_line(line: str) -> Optional[Record]:
 
     tokens = stripped.split()
     name = tokens.pop(0)
-    ttl = DEFAULT_TTL
+    if name.startswith("$"):
+        raise ValueError(
+            f"{name!r} is a zone-file directive, not a record; "
+            "use parse_zone to process $ORIGIN/$TTL"
+        )
+    if name == "@":
+        if origin is None:
+            raise ValueError("'@' owner name used with no $ORIGIN set")
+        name = origin
+    ttl = default_ttl
     rtype = None
     # Class ("IN") and TTL are both optional and can appear in either
     # order before the type, so walk left to right until the type shows up.
@@ -76,11 +97,48 @@ def parse_line(line: str) -> Optional[Record]:
     return _BUILDERS[rtype](name, ttl, tokens)
 
 
+def _parse_origin_directive(stripped: str) -> str:
+    tokens = stripped.split()
+    if len(tokens) != 2:
+        raise ValueError(f"malformed $ORIGIN directive: {stripped!r}")
+    origin = tokens[1]
+    if not is_valid_hostname(origin):
+        raise ValueError(f"invalid $ORIGIN value: {origin!r}")
+    return origin
+
+
+def _parse_ttl_directive(stripped: str) -> int:
+    tokens = stripped.split()
+    if len(tokens) != 2 or not tokens[1].isdigit():
+        raise ValueError(f"malformed $TTL directive: {stripped!r}")
+    return int(tokens[1])
+
+
 def parse_zone(text: str) -> List[Record]:
-    """Parse every record line in a zone file, skipping blanks and comments."""
+    """Parse every record line in a zone file, skipping blanks and comments.
+
+    Tracks `$ORIGIN` and `$TTL` directives as it goes: `$ORIGIN` resolves
+    a bare `@` owner name on later lines, and `$TTL` becomes the default
+    TTL for lines that omit one. Both apply from the point they appear
+    onward, matching BIND's behavior.
+    """
     records = []
+    origin: Optional[str] = None
+    default_ttl = DEFAULT_TTL
     for line in text.splitlines():
-        record = parse_line(line)
+        stripped = line.split(";", 1)[0].strip()
+        if not stripped:
+            continue
+
+        first_token = stripped.split(None, 1)[0].upper()
+        if first_token == "$ORIGIN":
+            origin = _parse_origin_directive(stripped)
+            continue
+        if first_token == "$TTL":
+            default_ttl = _parse_ttl_directive(stripped)
+            continue
+
+        record = parse_line(line, origin=origin, default_ttl=default_ttl)
         if record is not None:
             records.append(record)
     return records
