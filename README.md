@@ -51,6 +51,23 @@ records = parse_zone(zone_text)
 # records[0].name == "example.com.", records[0].ttl == 7200
 ```
 
+Records wrapped across multiple lines in parentheses, as SOA usually
+is, parse the same as a single line:
+
+```python
+zone_text = """
+example.com. 3600 IN SOA ns1.example.com. admin.example.com. (
+    2024010101 ; serial
+    3600       ; refresh
+    900        ; retry
+    604800     ; expire
+    86400 )    ; minimum
+"""
+
+records = parse_zone(zone_text)
+# records[0].serial == 2024010101
+```
+
 Building and validating records directly:
 
 ```python
@@ -78,7 +95,7 @@ see the code for the current field set on each.
 ## Status
 
 Early skeleton. The parser handles the common single-line record
-syntax, and `parse_zone` tracks `$ORIGIN`/`$TTL` directives (so `@`
-resolves and TTL-less lines pick up the right default). It does not
-yet handle multi-line records in parentheses, or expanding relative
+syntax, multi-line records wrapped in parentheses, and `parse_zone`
+tracks `$ORIGIN`/`$TTL` directives (so `@` resolves and TTL-less lines
+pick up the right default). It does not yet expand relative
 (non-FQDN, non-`@`) names against `$ORIGIN`.

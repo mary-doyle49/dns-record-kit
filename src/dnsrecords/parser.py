@@ -121,26 +121,70 @@ def parse_zone(text: str) -> List[Record]:
     a bare `@` owner name on later lines, and `$TTL` becomes the default
     TTL for lines that omit one. Both apply from the point they appear
     onward, matching BIND's behavior.
+
+    Records may also span multiple lines by wrapping the rdata fields in
+    parentheses, as is conventional for SOA:
+
+        example.com. IN SOA ns1.example.com. admin.example.com. (
+            2024010101 ; serial
+            3600       ; refresh
+            900        ; retry
+            604800     ; expire
+            86400 )    ; minimum
+
+    Lines inside an open pair of parentheses are joined with spaces
+    before being handed to `parse_line`, so the parens themselves never
+    reach it.
     """
     records = []
     origin: Optional[str] = None
     default_ttl = DEFAULT_TTL
-    for line in text.splitlines():
-        stripped = line.split(";", 1)[0].strip()
-        if not stripped:
+    pending: Optional[str] = None  # accumulated text of a record still open inside parens
+
+    for raw_line in text.splitlines():
+        content = raw_line.split(";", 1)[0].strip()
+
+        if pending is not None:
+            if content:
+                pending = f"{pending} {content}"
+            if pending.count("(") < pending.count(")"):
+                raise ValueError(f"unbalanced parentheses in zone file: {raw_line!r}")
+            if pending.count("(") > pending.count(")"):
+                continue
+            record = parse_line(
+                pending.replace("(", " ").replace(")", " "),
+                origin=origin,
+                default_ttl=default_ttl,
+            )
+            pending = None
+            if record is not None:
+                records.append(record)
             continue
 
-        first_token = stripped.split(None, 1)[0].upper()
+        if not content:
+            continue
+
+        first_token = content.split(None, 1)[0].upper()
         if first_token == "$ORIGIN":
-            origin = _parse_origin_directive(stripped)
+            origin = _parse_origin_directive(content)
             continue
         if first_token == "$TTL":
-            default_ttl = _parse_ttl_directive(stripped)
+            default_ttl = _parse_ttl_directive(content)
             continue
 
-        record = parse_line(line, origin=origin, default_ttl=default_ttl)
+        if content.count("(") < content.count(")"):
+            raise ValueError(f"unbalanced parentheses in zone file: {raw_line!r}")
+        if content.count("(") > content.count(")"):
+            pending = content
+            continue
+
+        record = parse_line(content, origin=origin, default_ttl=default_ttl)
         if record is not None:
             records.append(record)
+
+    if pending is not None:
+        raise ValueError("unterminated parenthesized record in zone file")
+
     return records
 
 
