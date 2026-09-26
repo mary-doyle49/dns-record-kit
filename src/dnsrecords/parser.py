@@ -19,26 +19,54 @@ from .records import (
 
 DEFAULT_TTL = 3600
 
+
+def _qualify(name: str, origin: Optional[str]) -> str:
+    """Expand a relative (non-FQDN) name against $ORIGIN, BIND-style.
+
+    A name ending in "." is already fully qualified and passed through
+    unchanged (this also covers SRV's "." target, which means "not
+    available here" rather than a name at all). Otherwise, if an origin
+    is known, it's appended; with no origin the name is left as-is since
+    there's nothing to qualify it against.
+    """
+    if origin is None or name.endswith("."):
+        return name
+    return f"{name}.{origin}"
+
+
 _BUILDERS = {
-    "A": lambda name, ttl, fields: ARecord(name, ttl, fields[0]),
-    "AAAA": lambda name, ttl, fields: AAAARecord(name, ttl, fields[0]),
-    "CNAME": lambda name, ttl, fields: CNAMERecord(name, ttl, fields[0]),
-    "NS": lambda name, ttl, fields: NSRecord(name, ttl, fields[0]),
-    "MX": lambda name, ttl, fields: MXRecord(name, ttl, int(fields[0]), fields[1]),
-    "TXT": lambda name, ttl, fields: TXTRecord(name, ttl, " ".join(fields).strip('"')),
-    "SOA": lambda name, ttl, fields: SOARecord(
+    "A": lambda name, ttl, fields, origin: ARecord(name, ttl, fields[0]),
+    "AAAA": lambda name, ttl, fields, origin: AAAARecord(name, ttl, fields[0]),
+    "CNAME": lambda name, ttl, fields, origin: CNAMERecord(
+        name, ttl, _qualify(fields[0], origin)
+    ),
+    "NS": lambda name, ttl, fields, origin: NSRecord(
+        name, ttl, _qualify(fields[0], origin)
+    ),
+    "MX": lambda name, ttl, fields, origin: MXRecord(
+        name, ttl, int(fields[0]), _qualify(fields[1], origin)
+    ),
+    "TXT": lambda name, ttl, fields, origin: TXTRecord(
+        name, ttl, " ".join(fields).strip('"')
+    ),
+    "SOA": lambda name, ttl, fields, origin: SOARecord(
         name,
         ttl,
-        fields[0],
-        fields[1],
+        _qualify(fields[0], origin),
+        _qualify(fields[1], origin),
         int(fields[2]),
         int(fields[3]),
         int(fields[4]),
         int(fields[5]),
         int(fields[6]),
     ),
-    "SRV": lambda name, ttl, fields: SRVRecord(
-        name, ttl, int(fields[0]), int(fields[1]), int(fields[2]), fields[3]
+    "SRV": lambda name, ttl, fields, origin: SRVRecord(
+        name,
+        ttl,
+        int(fields[0]),
+        int(fields[1]),
+        int(fields[2]),
+        _qualify(fields[3], origin),
     ),
 }
 
@@ -56,9 +84,11 @@ def parse_line(
 
     `origin` and `default_ttl` carry the state that `$ORIGIN`/`$TTL`
     directives set elsewhere in the file: pass the current origin so a
-    bare `@` owner name resolves, and the current default TTL so lines
-    that omit one pick up the right value. Directive lines themselves
-    are not records; `parse_zone` handles those before calling here.
+    bare `@` owner name resolves and any relative (non-FQDN) name in the
+    owner field or a hostname-valued rdata field gets `$ORIGIN` appended,
+    and the current default TTL so lines that omit one pick up the right
+    value. Directive lines themselves are not records; `parse_zone`
+    handles those before calling here.
     """
     stripped = line.split(";", 1)[0].strip()
     if not stripped:
@@ -75,6 +105,8 @@ def parse_line(
         if origin is None:
             raise ValueError("'@' owner name used with no $ORIGIN set")
         name = origin
+    else:
+        name = _qualify(name, origin)
     ttl = default_ttl
     rtype = None
     # Class ("IN") and TTL are both optional and can appear in either
@@ -94,7 +126,7 @@ def parse_line(
     if rtype is None:
         raise ValueError(f"no record type found in line: {line!r}")
 
-    return _BUILDERS[rtype](name, ttl, tokens)
+    return _BUILDERS[rtype](name, ttl, tokens, origin)
 
 
 def _parse_origin_directive(stripped: str) -> str:
@@ -118,9 +150,10 @@ def parse_zone(text: str) -> List[Record]:
     """Parse every record line in a zone file, skipping blanks and comments.
 
     Tracks `$ORIGIN` and `$TTL` directives as it goes: `$ORIGIN` resolves
-    a bare `@` owner name on later lines, and `$TTL` becomes the default
-    TTL for lines that omit one. Both apply from the point they appear
-    onward, matching BIND's behavior.
+    a bare `@` owner name and expands any other relative name on later
+    lines (owner name or a hostname-valued rdata field), and `$TTL`
+    becomes the default TTL for lines that omit one. Both apply from the
+    point they appear onward, matching BIND's behavior.
 
     Records may also span multiple lines by wrapping the rdata fields in
     parentheses, as is conventional for SOA:

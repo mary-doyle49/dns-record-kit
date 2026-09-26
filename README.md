@@ -96,6 +96,7 @@ see the code for the current field set on each.
 
 Early skeleton. The parser handles the common single-line record
 syntax, multi-line records wrapped in parentheses, and `parse_zone`
-tracks `$ORIGIN`/`$TTL` directives (so `@` resolves and TTL-less lines
-pick up the right default). It does not yet expand relative
-(non-FQDN, non-`@`) names against `$ORIGIN`.
+tracks `$ORIGIN`/`$TTL` directives (so `@` resolves, TTL-less lines
+pick up the right default, and relative names in the owner field or
+in a hostname-valued rdata field get `$ORIGIN` appended, matching
+BIND). There's no test suite yet.
